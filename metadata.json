@@ -1,0 +1,8 @@
+{
+  "name": "Harekat: Kanyon",
+  "description": "Gelişmiş fizik, balistik, PBR materyaller ve taktiksel yapay zekaya sahip gerçekçi 3B birinci şahıs nişancı (FPS) oyunu.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
