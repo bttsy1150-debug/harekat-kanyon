@@ -15,6 +15,10 @@ import {
   PlusCircle,
   UploadCloud,
   Server,
+  Download,
+  Terminal,
+  Copy,
+  Check,
 } from 'lucide-react';
 import {
   DIFFICULTIES,
@@ -32,7 +36,7 @@ import {
   WEAPONS,
   WeaponId,
 } from '../game/types';
-import { DEFAULT_ONLINE_SERVER_URL } from '../game/net';
+import { DEFAULT_ONLINE_SERVER_URL, resolveHttpBase } from '../game/net';
 
 interface GameMenusProps {
   hud: HudState;
@@ -105,8 +109,65 @@ export const GameMenus: React.FC<GameMenusProps> = ({
   const [newRoomMode, setNewRoomMode] = useState<MultiplayerMode>('ffa');
   const [newRoomMaxPlayers, setNewRoomMaxPlayers] = useState(12);
   const [newRoomBots, setNewRoomBots] = useState(4);
+  const [itchUser, setItchUser] = useState('kullaniciadi');
+  const [itchGame, setItchGame] = useState('harekat-kanyon');
+  const [itchChannel, setItchChannel] = useState('html5');
+  const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
+  const [zipDownloading, setZipDownloading] = useState(false);
+  const [zipError, setZipError] = useState<string | null>(null);
 
   if (hud.phase === 'playing') return null;
+
+  const butlerTarget = `${itchUser.trim() || 'kullaniciadi'}/${itchGame.trim() || 'harekat-kanyon'}:${itchChannel.trim() || 'html5'}`;
+  const butlerPushCmd = `butler push itch-bundle.zip ${butlerTarget}`;
+  const npmPushCmd = `ITCH_TARGET="${butlerTarget}" npm run itch:push`;
+
+  const copyText = (key: string, value: string) => {
+    navigator.clipboard?.writeText(value).catch(() => {});
+    setCopiedCmd(key);
+    window.setTimeout(() => setCopiedCmd((cur) => (cur === key ? null : cur)), 1800);
+  };
+
+  const handleDownloadItchZip = async () => {
+    setZipDownloading(true);
+    setZipError(null);
+    try {
+      const host = typeof window !== 'undefined' ? window.location.hostname : '';
+      const isStaticHost =
+        host.includes('itch.zone') || host.includes('itch.io') || host.includes('hwcdn.net');
+      const base = isStaticHost || serverUrl.trim() ? resolveHttpBase(serverUrl) : '';
+      const res = await fetch(`${base}/api/itch-bundle.zip`, {
+        method: 'GET',
+        cache: 'no-store',
+        credentials: isStaticHost ? 'omit' : 'same-origin',
+      });
+      if (!res.ok) {
+        throw new Error(`Sunucu yanıtı: HTTP ${res.status}`);
+      }
+      const buf = await res.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      if (bytes.length < 100 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) {
+        throw new Error('Geçersiz ZIP içeriği döndü (PK başlığı doğrulanamadı).');
+      }
+      const blob = new Blob([buf], { type: 'application/zip' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'itch-bundle.zip';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (err) {
+      setZipError(
+        err instanceof Error
+          ? `${err.message} Terminalde "npm run itch:package" ile üretebilirsiniz.`
+          : 'ZIP indirilemedi.'
+      );
+    } finally {
+      setZipDownloading(false);
+    }
+  };
 
   const mc = hud.matchConfig;
 
@@ -654,50 +715,149 @@ export const GameMenus: React.FC<GameMenusProps> = ({
 
           {lobbyTab === 'itch' && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-sm text-stone-300">
-              <div className="bg-stone-900/75 border border-stone-800 rounded p-5 space-y-3">
-                <h3 className="font-display text-lg font-bold text-amber-400">
-                  itch.io HTML5 Yükleme Adımları
-                </h3>
-                <ol className="list-decimal list-inside space-y-2 text-xs leading-relaxed text-stone-300">
+              <div className="bg-stone-900/75 border border-stone-800 rounded p-5 space-y-4">
+                <div>
+                  <h3 className="font-display text-lg font-bold text-amber-400">
+                    1. Hazır itch-bundle.zip Paketini İndir
+                  </h3>
+                  <p className="text-xs text-stone-300 mt-1 leading-relaxed">
+                    <code className="text-stone-100">index.html</code> doğrudan ZIP kökünde ve tüm
+                    varlık yolları göreceli (<code className="text-stone-100">./assets/...</code>)
+                    olacak şekilde paketlenir. Yerel CLI ile üretmek için:{' '}
+                    <code className="text-amber-300 font-mono-tech">npm run itch:package</code>
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadItchZip}
+                  disabled={zipDownloading}
+                  className="inline-flex items-center justify-center gap-2 w-full py-3 px-4 rounded bg-amber-500 hover:bg-amber-400 disabled:opacity-60 text-stone-950 font-display font-bold text-sm tracking-wide transition-colors cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  {zipDownloading ? 'Paket Doğrulanıyor...' : 'itch-bundle.zip İndir'}
+                </button>
+
+                {zipError && (
+                  <div className="p-2.5 rounded bg-red-950/60 border border-red-800 text-xs text-red-200">
+                    {zipError}
+                  </div>
+                )}
+
+                <ol className="list-decimal list-inside space-y-1.5 text-xs leading-relaxed text-stone-300 pt-2 border-t border-stone-800">
                   <li>
-                    Proje dizininde <code className="text-amber-300 font-mono-tech">npm run build</code>{' '}
-                    çalıştırarak göreceli dosya yollarıyla (<code className="text-stone-200">base: &quot;./&quot;</code>)
-                    derlenmiş <code className="text-amber-300 font-mono-tech">dist/</code> klasörünü alın.
+                    itch.io &rarr; <em>Create new project</em> &rarr; Kind of project:{' '}
+                    <strong className="text-stone-100">HTML</strong> seçin.
                   </li>
                   <li>
-                    <code className="text-amber-300 font-mono-tech">dist/</code> klasörünün içindeki tüm dosyaları
-                    (doğrudan kökünde <code className="text-stone-200">index.html</code> olacak şekilde){' '}
-                    <strong>harekat-kanyon.zip</strong> olarak sıkıştırın.
+                    <em>Uploads</em> bölümünden <strong className="text-stone-100">itch-bundle.zip</strong>{' '}
+                    dosyasını açmadan yükleyin ve <strong>&quot;This file will be played in the browser&quot;</strong>{' '}
+                    kutusunu işaretleyin.
                   </li>
                   <li>
-                    itch.io &rarr; <em>Upload New Project</em> &rarr; Kind of project:{' '}
-                    <strong>HTML</strong> seçin, ZIP dosyasını yükleyin ve{' '}
-                    <em>&quot;This file will be played in the browser&quot;</em> kutusunu işaretleyin.
-                  </li>
-                  <li>
-                    Viewport boyutunu <strong>1280 × 720</strong> (veya 1366 × 768) yapıp{' '}
-                    <em>Fullscreen button</em> seçeneğini açın.
+                    Viewport: <strong className="text-stone-100">1280 × 720</strong> + <em>Fullscreen button</em>{' '}
+                    seçeneğini açıp yayınlayın.
                   </li>
                 </ol>
+
+                <div className="pt-2 border-t border-stone-800 space-y-1.5">
+                  <div className="text-[11px] font-semibold text-stone-200">
+                    Canlı Çok Oyunculu Sunucu Adresi
+                  </div>
+                  <div className="p-2 rounded bg-stone-950 border border-stone-800 font-mono-tech text-[11px] text-emerald-400 break-all">
+                    {DEFAULT_ONLINE_SERVER_URL}
+                  </div>
+                </div>
               </div>
 
-              <div className="bg-stone-900/75 border border-stone-800 rounded p-5 space-y-3">
-                <h3 className="font-display text-lg font-bold text-stone-100">
-                  Online Çok Oyunculu Sunucu Bağlantısı
-                </h3>
-                <p className="text-xs leading-relaxed text-stone-300">
-                  itch.io yalnızca statik HTML/JS dosyalarını barındırır. Bu oyunun istemci kodu, itch.io
-                  üzerinden açıldığında otomatik olarak CORS ve WSS uyumlu canlı Node/WebSocket sunucusuna
-                  bağlanır:
-                </p>
-                <div className="p-2.5 rounded bg-stone-950 border border-stone-800 font-mono-tech text-[11px] text-emerald-400 break-all">
-                  {DEFAULT_ONLINE_SERVER_URL}
+              <div className="bg-stone-900/75 border border-stone-800 rounded p-5 space-y-3.5">
+                <div className="flex items-center gap-2">
+                  <Terminal className="w-4 h-4 text-amber-400" />
+                  <h3 className="font-display text-lg font-bold text-stone-100">
+                    2. Butler CLI ile Otomatik Yükleme
+                  </h3>
                 </div>
-                <p className="text-xs text-stone-400 leading-relaxed">
-                  İsterseniz kendi VPS/Render/Railway sunucunuzda{' '}
-                  <code className="text-stone-200">npm start</code> ile sunucuyu çalıştırıp Online sekmesindeki{' '}
-                  <em>Sunucu Adresi</em> alanından adresinizi girebilirsiniz.
+                <p className="text-xs leading-relaxed text-stone-300">
+                  itch.io&apos;nun resmi <strong className="text-stone-100">butler</strong> aracıyla
+                  tek komutta derleyip doğrudan yayınlayabilirsin. Hedef bilgilerini gir:
                 </p>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-[10px] text-stone-400 mb-1">Kullanıcı Adı</label>
+                    <input
+                      type="text"
+                      value={itchUser}
+                      onChange={(e) => setItchUser(e.target.value)}
+                      className="w-full bg-stone-950 border border-stone-800 focus:border-amber-500 rounded px-2 py-1.5 text-xs font-mono-tech text-stone-100 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-stone-400 mb-1">Oyun Slug</label>
+                    <input
+                      type="text"
+                      value={itchGame}
+                      onChange={(e) => setItchGame(e.target.value)}
+                      className="w-full bg-stone-950 border border-stone-800 focus:border-amber-500 rounded px-2 py-1.5 text-xs font-mono-tech text-stone-100 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-stone-400 mb-1">Kanal</label>
+                    <input
+                      type="text"
+                      value={itchChannel}
+                      onChange={(e) => setItchChannel(e.target.value)}
+                      className="w-full bg-stone-950 border border-stone-800 focus:border-amber-500 rounded px-2 py-1.5 text-xs font-mono-tech text-stone-100 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-[11px] text-stone-400">
+                    Derle + paketle + butler ile tek komutta gönder:
+                  </div>
+                  <div className="flex items-center justify-between gap-2 p-2.5 rounded bg-stone-950 border border-stone-800 font-mono-tech text-[11px] text-amber-300">
+                    <span className="truncate">{npmPushCmd}</span>
+                    <button
+                      type="button"
+                      onClick={() => copyText('npm', npmPushCmd)}
+                      className="shrink-0 p-1 rounded hover:bg-stone-800 text-stone-300 cursor-pointer"
+                      title="Kopyala"
+                    >
+                      {copiedCmd === 'npm' ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </div>
+
+                  <div className="text-[11px] text-stone-400 pt-1">
+                    Veya indirdiğin ZIP dosyasıyla doğrudan:
+                  </div>
+                  <div className="flex items-center justify-between gap-2 p-2.5 rounded bg-stone-950 border border-stone-800 font-mono-tech text-[11px] text-stone-200">
+                    <span className="truncate">{butlerPushCmd}</span>
+                    <button
+                      type="button"
+                      onClick={() => copyText('butler', butlerPushCmd)}
+                      className="shrink-0 p-1 rounded hover:bg-stone-800 text-stone-300 cursor-pointer"
+                      title="Kopyala"
+                    >
+                      {copiedCmd === 'butler' ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-2.5 rounded bg-stone-950/80 border border-stone-800 text-[11px] text-stone-400 leading-relaxed">
+                  İlk kullanım öncesi terminalde <code className="text-stone-200">butler login</code>{' '}
+                  çalıştırın. GitHub Actions CI otomasyonu için{' '}
+                  <code className="text-stone-200">.github/workflows/itch-deploy.yml</code> şablonu
+                  projeye eklendi.
+                </div>
               </div>
             </div>
           )}

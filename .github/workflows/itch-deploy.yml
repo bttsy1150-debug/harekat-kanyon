@@ -1,0 +1,45 @@
+name: Deploy to itch.io
+
+on:
+  workflow_dispatch:
+    inputs:
+      itch_target:
+        description: 'itch.io hedefi (ornek: kullanici/harekat-kanyon:html5)'
+        required: true
+        default: 'kullanici/harekat-kanyon:html5'
+      release_version:
+        description: 'Surum numarasi'
+        required: false
+        default: '1.0.0'
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build & Package itch-bundle.zip
+        run: npm run itch:package
+
+      - name: Install itch.io butler
+        run: |
+          curl -L -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          unzip butler.zip -d butler-bin
+          chmod +x butler-bin/butler
+          echo "$PWD/butler-bin" >> $GITHUB_PATH
+
+      - name: Push to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          butler push itch-bundle.zip "${{ inputs.itch_target }}" --userversion "${{ inputs.release_version }}"

@@ -237,6 +237,7 @@ export class FpsGameEngine {
   private keys: Record<string, boolean> = {};
   private mouseDown = false;
   private hudEmitAccum = 0;
+  private lastPointerUnlockTime = 0;
 
   // Multiplayer state
   private net: MultiplayerClient;
@@ -799,10 +800,22 @@ export class FpsGameEngine {
   }
 
   public requestLock() {
+    if (this.disposed) return;
+    const el = this.renderer.domElement;
+    if (document.pointerLockElement === el) return;
+    // Browsers enforce a ~1.25s cooldown right after ESC exits pointer lock
+    if (performance.now() - this.lastPointerUnlockTime < 1300) {
+      return;
+    }
     try {
-      this.renderer.domElement.requestPointerLock();
+      const maybePromise = el.requestPointerLock() as unknown as Promise<void> | undefined;
+      if (maybePromise && typeof maybePromise.catch === 'function') {
+        maybePromise.catch(() => {
+          // Ignore browser pointer lock cooldown or focus rejection
+        });
+      }
     } catch {
-      // Ignore if blocked
+      // Ignore if blocked synchronously
     }
   }
 
@@ -908,10 +921,15 @@ export class FpsGameEngine {
   }
 
   // ============ INPUT & EVENTS ============
+  private onPointerLockError = () => {
+    // Prevent unhandled pointer lock errors when browser enforces unlock cooldown
+  };
+
   private onPointerLockChange = () => {
     const locked = document.pointerLockElement === this.renderer.domElement;
     this.pointerLocked = locked;
     if (!locked) {
+      this.lastPointerUnlockTime = performance.now();
       this.mouseDown = false;
       if (this.aiming) {
         this.aiming = false;
@@ -1027,6 +1045,7 @@ export class FpsGameEngine {
 
   private bindEvents() {
     document.addEventListener('pointerlockchange', this.onPointerLockChange);
+    document.addEventListener('pointerlockerror', this.onPointerLockError);
     document.addEventListener('mousemove', this.onMouseMove);
     document.addEventListener('mousedown', this.onMouseDown);
     document.addEventListener('mouseup', this.onMouseUp);
@@ -3143,6 +3162,7 @@ export class FpsGameEngine {
     clearTimeout(this.frameId);
 
     document.removeEventListener('pointerlockchange', this.onPointerLockChange);
+    document.removeEventListener('pointerlockerror', this.onPointerLockError);
     document.removeEventListener('mousemove', this.onMouseMove);
     document.removeEventListener('mousedown', this.onMouseDown);
     document.removeEventListener('mouseup', this.onMouseUp);

@@ -1,5 +1,7 @@
 import express from 'express';
+import fs from 'fs';
 import http from 'http';
+import JSZip from 'jszip';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -391,6 +393,25 @@ async function bootstrap() {
 
   app.get('/api/rooms', (_req, res) => {
     res.json({ rooms: getRoomSummaries() });
+  });
+
+  app.get('/api/itch-bundle.zip', async (_req, res) => {
+    const distDir = path.resolve(__dirname, 'dist');
+    if (!fs.existsSync(path.join(distDir, 'index.html'))) {
+      res.status(404).send('Derlenmiş dist paketi bulunamadı. Önce npm run build çalıştırın.');
+      return;
+    }
+    try {
+      const zipBuf = await buildZipFromDirectory(distDir);
+      res.status(200);
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', 'attachment; filename="itch-bundle.zip"');
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Content-Length', String(zipBuf.length));
+      res.end(zipBuf);
+    } catch (err) {
+      res.status(500).send(`ZIP oluşturulamadı: ${err instanceof Error ? err.message : String(err)}`);
+    }
   });
 
   const server = http.createServer(app);
@@ -916,3 +937,43 @@ bootstrap().catch((err) => {
   console.error('Server failed to start:', err);
   process.exit(1);
 });
+
+function collectFiles(rootDir: string, currentDir: string, out: Array<{ rel: string; abs: string }>) {
+  const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+  for (const entry of entries) {
+    const abs = path.join(currentDir, entry.name);
+    const rel = path.relative(rootDir, abs).split(path.sep).join('/');
+    if (rel === 'assets/aistudio' || rel.startsWith('assets/aistudio/')) {
+      continue;
+    }
+    if (entry.isDirectory()) {
+      collectFiles(rootDir, abs, out);
+    } else if (entry.isFile()) {
+      out.push({ rel, abs });
+    }
+  }
+}
+
+async function buildZipFromDirectory(rootDir: string): Promise<Buffer> {
+  const files: Array<{ rel: string; abs: string }> = [];
+  collectFiles(rootDir, rootDir, files);
+
+  const zip = new JSZip();
+  const now = new Date();
+  for (const f of files) {
+    const raw = fs.readFileSync(f.abs);
+    zip.file(f.rel, raw, {
+      binary: true,
+      date: now,
+      compression: 'DEFLATE',
+      compressionOptions: { level: 9 },
+    });
+  }
+
+  return zip.generateAsync({
+    type: 'nodebuffer',
+    platform: 'DOS',
+    compression: 'DEFLATE',
+    compressionOptions: { level: 9 },
+  });
+}

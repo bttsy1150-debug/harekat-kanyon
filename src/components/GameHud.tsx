@@ -162,6 +162,13 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
       )}
 
+      {/* Pointer Lock Hint if browser cooldown prevented immediate re-lock */}
+      {hud.phase === 'playing' && !hud.pointerLocked && !chatOpen && hud.mpRespawnTimer <= 0 && (
+        <div className="fixed top-[41%] left-1/2 -translate-x-1/2 bg-stone-950/90 border border-amber-500/60 px-4 py-1.5 rounded text-xs font-medium text-amber-300 shadow-lg">
+          Fareyi kilitlemek için ekrana tıkla
+        </div>
+      )}
+
       {/* Dynamic Tactical Crosshair */}
       {!hud.sniperScoped && hud.phase === 'playing' && hud.mpRespawnTimer <= 0 && (
         <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
